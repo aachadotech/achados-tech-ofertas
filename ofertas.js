@@ -25,7 +25,7 @@ const CONFIG = {
   PRODUTOS_POR_CATEGORIA: 50,
   VAGAS_PLACA_DE_VIDEO: 1,  // posts reservados para placa de vídeo em cada rodada (se houver)
   DESCONTO_MINIMO: 10,       // % mínimo para contar como promoção
-  LIMITE_POSTS: 3,           // posts por execução
+  LIMITE_POSTS: 2,           // posts por execução
   DIAS_SEM_REPETIR: 7,       // não repete o mesmo produto por X dias...
   QUEDA_PARA_REPOSTAR: 5,    // ...a menos que o preço caia X% ou mais
   DIAS_DE_HISTORICO: 30,
