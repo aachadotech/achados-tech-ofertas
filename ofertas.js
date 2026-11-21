@@ -4,8 +4,8 @@
 // Roda a cada 20 min pelo GitHub Actions (.github/workflows/ofertas.yml).
 // Faz o mesmo que o workflow do n8n:
 //   1. Renova o acesso à API do Mercado Livre (refresh_token rotativo)
-//   2. Busca os mais vendidos de 3 categorias (rodízio entre 32)
-//   3. Escolhe até 3 ofertas novas (promoções primeiro, sem repetir)
+//   2. Busca os mais vendidos: placas de vídeo + 1 componente + 1 periférico
+//   3. Escolhe até 3 ofertas novas (1 placa de vídeo garantida, promoções primeiro)
 //   4. Posta no Telegram com o link de afiliado escondido
 //
 // O "estado" (token + histórico de postados + rodízio) fica no arquivo
@@ -23,7 +23,7 @@ const CONFIG = {
   MATT_TOOL: process.env.ML_MATT_TOOL || '41829093',
 
   PRODUTOS_POR_CATEGORIA: 50,
-  CATEGORIAS_POR_RODADA: 3,
+  VAGAS_PLACA_DE_VIDEO: 1,  // posts reservados para placa de vídeo em cada rodada (se houver)
   DESCONTO_MINIMO: 10,       // % mínimo para contar como promoção
   LIMITE_POSTS: 3,           // posts por execução
   DIAS_SEM_REPETIR: 7,       // não repete o mesmo produto por X dias...
@@ -33,40 +33,39 @@ const CONFIG = {
   REQUISICOES_SIMULTANEAS: 8
 };
 
-// Ordem intercalada: peças, periféricos e setup se alternam a cada rodada
-const CATEGORIAS = [
-  { id: 'MLB418472', nome: 'Teclados' },
-  { id: 'MLB455814', nome: 'Placas (vídeo e mãe)' },
-  { id: 'MLB11172', nome: 'Consoles' },
-  { id: 'MLB99245', nome: 'Monitores' },
-  { id: 'MLB1714', nome: 'Mouses' },
-  { id: 'MLB1672', nome: 'HDs e SSDs externos' },
-  { id: 'MLB186456', nome: 'Jogos' },
+// Cada rodada olha: placas de vídeo (sempre) + 1 componente + 1 periférico/setup
+const PLACAS_DE_VIDEO = { id: 'MLB1658', nome: 'Placas de vídeo' };
+
+const COMPONENTES = [
   { id: 'MLB1693', nome: 'Processadores' },
-  { id: 'MLB418047', nome: 'Suportes de monitor' },
-  { id: 'MLB455266', nome: 'Gamepads e joysticks' },
-  { id: 'MLB1716', nome: 'Mousepads' },
+  { id: 'MLB1692', nome: 'Placas-mãe' },
   { id: 'MLB1694', nome: 'Memórias RAM' },
-  { id: 'MLB5867', nome: 'Roteadores' },
-  { id: 'MLB439418', nome: 'Mesas para PC' },
-  { id: 'MLB1664', nome: 'Fones e headsets' },
-  { id: 'MLB11187', nome: 'Hubs USB' },
-  { id: 'MLB430598', nome: 'Armazenamento' },
-  { id: 'MLB447782', nome: 'Cadeiras gamer' },
-  { id: 'MLB196208', nome: 'Fones Bluetooth' },
-  { id: 'MLB73364', nome: 'Webcams' },
+  { id: 'MLB430598', nome: 'SSDs e armazenamento' },
   { id: 'MLB430916', nome: 'Fontes' },
-  { id: 'MLB189908', nome: 'Fitas de LED' },
-  { id: 'MLB2048', nome: 'Controles' },
-  { id: 'MLB1659', nome: 'Placas de captura' },
-  { id: 'MLB8279', nome: 'Microfones' },
-  { id: 'MLB135384', nome: 'Smartwatches' },
   { id: 'MLB438783', nome: 'Gabinetes' },
-  { id: 'MLB4980', nome: 'Pen drives' },
+  { id: 'MLB430788', nome: 'Refrigeração' }
+];
+
+const PERIFERICOS = [
+  { id: 'MLB99245', nome: 'Monitores' },
+  { id: 'MLB418472', nome: 'Teclados' },
+  { id: 'MLB1714', nome: 'Mouses' },
+  { id: 'MLB1664', nome: 'Headsets' },
+  { id: 'MLB447782', nome: 'Cadeiras gamer' },
+  { id: 'MLB1716', nome: 'Mousepads' },
+  { id: 'MLB439418', nome: 'Mesas para PC' },
+  { id: 'MLB1672', nome: 'HDs e SSDs externos' },
+  { id: 'MLB73364', nome: 'Webcams' },
+  { id: 'MLB8279', nome: 'Microfones' },
+  { id: 'MLB418047', nome: 'Suportes de monitor' },
+  { id: 'MLB1659', nome: 'Placas de captura' },
+  { id: 'MLB11187', nome: 'Hubs USB' },
+  { id: 'MLB5867', nome: 'Roteadores' },
+  { id: 'MLB270504', nome: 'No-breaks' },
   { id: 'MLB3378', nome: 'Caixas de som' },
+  { id: 'MLB189908', nome: 'Fitas de LED' },
   { id: 'MLB456571', nome: 'Suportes para headset' },
-  { id: 'MLB430788', nome: 'Refrigeração' },
-  { id: 'MLB270504', nome: 'No-breaks' }
+  { id: 'MLB4980', nome: 'Pen drives' }
 ];
 
 const BLOQUEADAS = [
@@ -257,11 +256,11 @@ async function detalhar(c, token) {
 
 async function buscar(token, estado) {
   estado.rodada = (Number(estado.rodada) || 0) + 1;
-  const inicio = (estado.rodada * CONFIG.CATEGORIAS_POR_RODADA) % CATEGORIAS.length;
-  const escolhidas = [];
-  for (let i = 0; i < CONFIG.CATEGORIAS_POR_RODADA; i++) {
-    escolhidas.push(CATEGORIAS[(inicio + i) % CATEGORIAS.length]);
-  }
+  const escolhidas = [
+    PLACAS_DE_VIDEO,
+    COMPONENTES[estado.rodada % COMPONENTES.length],
+    PERIFERICOS[estado.rodada % PERIFERICOS.length]
+  ];
   console.log('Categorias desta rodada: ' + escolhidas.map(c => c.nome).join(', '));
 
   const produtos = [];
@@ -279,7 +278,7 @@ async function buscar(token, estado) {
       let anterior = Number(p.preco_anterior);
       if (!(anterior > atual) || anterior > atual * 5) anterior = null;
       const desconto = anterior ? Math.round(((anterior - atual) / anterior) * 100) : 0;
-      produtos.push({ ...p, preco: atual, preco_anterior: anterior, desconto, categoria: cat.nome,
+      produtos.push({ ...p, preco: atual, preco_anterior: anterior, desconto, categoria: cat.nome, gpu: cat === PLACAS_DE_VIDEO,
         imagem: imagemJpg(p.imagem) });
     }
     console.log(`  ${cat.nome}: ${conteudo.length} mais vendidos olhados`);
@@ -313,10 +312,23 @@ function selecionar(produtos, estado) {
   }
   promocoes.sort((a, b) => b.desconto - a.desconto);
   reservas.sort((a, b) => b.desconto - a.desconto);
-  const escolhidos = promocoes.slice(0, CONFIG.LIMITE_POSTS).map(p => ({ ...p, tipo: 'promocao' }));
+  const escolhidos = [];
+  const usados = new Set();
+  const pegar = (p, tipo) => { escolhidos.push({ ...p, tipo }); usados.add(p.id); };
+
+  // 1. Vaga garantida para placa de vídeo (promoção primeiro, senão preço ótimo)
+  const gpus = [...promocoes.filter(p => p.gpu).map(p => [p, 'promocao']),
+                ...reservas.filter(p => p.gpu).map(p => [p, 'preco_otimo'])];
+  for (const [p, tipo] of gpus.slice(0, CONFIG.VAGAS_PLACA_DE_VIDEO)) pegar(p, tipo);
+
+  // 2. Resto: maiores descontos, depois preço ótimo
+  for (const p of promocoes) {
+    if (escolhidos.length >= CONFIG.LIMITE_POSTS) break;
+    if (!usados.has(p.id)) pegar(p, 'promocao');
+  }
   for (const p of reservas) {
     if (escolhidos.length >= CONFIG.LIMITE_POSTS) break;
-    escolhidos.push({ ...p, tipo: 'preco_otimo' });
+    if (!usados.has(p.id)) pegar(p, 'preco_otimo');
   }
   return escolhidos;
 }
