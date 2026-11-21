@@ -1,0 +1,83 @@
+name: Ofertas Mercado Livre
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'   # a cada 20 minutos (horário UTC; o GitHub pode atrasar alguns minutos)
+  workflow_dispatch:
+    inputs:
+      teste:
+        description: 'Só testar (mostra as ofertas no log, NÃO posta no Telegram)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # gravar o estado criptografado no branch "estado"
+  actions: write    # manter a agenda ativa (o GitHub pausa agendas paradas há 60 dias)
+
+concurrency:
+  group: ofertas
+  cancel-in-progress: false
+
+jobs:
+  postar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Baixar estado
+        run: |
+          set +e
+          git ls-remote --exit-code --heads origin estado > /dev/null
+          rc=$?
+          set -e
+          if [ "$rc" = "0" ]; then
+            git fetch --depth=1 origin estado
+            git show FETCH_HEAD:estado.enc > estado.enc
+            echo "Estado carregado."
+          elif [ "$rc" = "2" ]; then
+            echo "Primeira execução: ainda não há estado."
+          else
+            echo "::error::Não consegui consultar o branch estado (rc=$rc)."
+            exit 1
+          fi
+
+      - name: Buscar e postar ofertas
+        env:
+          ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
+          ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
+          ML_REFRESH_TOKEN: ${{ secrets.ML_REFRESH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ESTADO_SENHA: ${{ secrets.ESTADO_SENHA }}
+          MODO_TESTE: ${{ github.event_name == 'workflow_dispatch' && inputs.teste || 'false' }}
+        run: node ofertas.js
+
+      - name: Salvar estado
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f estado.enc ] || { echo "Nada para salvar."; exit 0; }
+          mkdir -p /tmp/estado && cp estado.enc /tmp/estado/ && cd /tmp/estado
+          git init -q -b estado
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add estado.enc
+          git commit -q -m "estado"
+          for i in 1 2 3; do
+            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" estado && exit 0
+            sleep 5
+          done
+          echo "::error::Não consegui salvar o estado."
+          exit 1
+
+      - name: Manter a agenda ativa
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable ofertas.yml -R "$GITHUB_REPOSITORY" || true
