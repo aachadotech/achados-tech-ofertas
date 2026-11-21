@@ -299,8 +299,15 @@ function jaPostado(estado, id, preco) {
 function selecionar(produtos, estado) {
   const promocoes = [];
   const reservas = [];
+  // Mesmo produto em anúncios diferentes (ex.: versões de console) conta como repetido
+  const nomesVistos = new Map(Object.entries(estado.postados)
+    .filter(([, r]) => r.nome && agora - r.data < CONFIG.DIAS_SEM_REPETIR * DIA)
+    .map(([id, r]) => [r.nome, id]));
   for (const p of produtos) {
     if (jaPostado(estado, p.id, p.preco)) continue;
+    const chaveNome = nomeCurto(p.nome).toLowerCase();
+    if (nomesVistos.has(chaveNome) && nomesVistos.get(chaveNome) !== p.id) continue;
+    nomesVistos.set(chaveNome, p.id);
     if (p.desconto >= CONFIG.DESCONTO_MINIMO && p.desconto < 95) promocoes.push(p);
     else reservas.push(p);
   }
@@ -404,7 +411,7 @@ async function postar(p) {
     }
     try {
       await postar(p);
-      estado.postados[p.id] = { data: agora, preco: p.preco };
+      estado.postados[p.id] = { data: agora, preco: p.preco, nome: nomeCurto(p.nome).toLowerCase() };
       enviados++;
       console.log('Postado: ' + resumo);
     } catch (e) {
