@@ -2,7 +2,7 @@ name: Ofertas Mercado Livre
 
 on:
   schedule:
-    - cron: '*/20 * * * *'   # a cada 20 minutos (horário UTC; o GitHub pode atrasar alguns minutos)
+    - cron: '*/10 * * * *'   # a cada 10 minutos (horário UTC; o GitHub pode atrasar alguns minutos)
   workflow_dispatch:
     inputs:
       teste:
