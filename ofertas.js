@@ -5,7 +5,7 @@
 // Faz o mesmo que o workflow do n8n:
 //   1. Renova o acesso à API do Mercado Livre (refresh_token rotativo)
 //   2. Busca os mais vendidos: placas de vídeo + 1 componente + 1 periférico
-//   3. Escolhe até 3 ofertas novas (1 placa de vídeo garantida, promoções primeiro)
+//   3. Escolhe as ofertas (1 placa de vídeo a cada 3 posts, promoções primeiro)
 //   4. Posta no Telegram com o link de afiliado escondido
 //
 // O "estado" (token + histórico de postados + rodízio) fica no arquivo
@@ -23,7 +23,7 @@ const CONFIG = {
   MATT_TOOL: process.env.ML_MATT_TOOL || '41829093',
 
   PRODUTOS_POR_CATEGORIA: 50,
-  VAGAS_PLACA_DE_VIDEO: 1,  // posts reservados para placa de vídeo em cada rodada (se houver)
+  PLACA_A_CADA: 3,           // 1 placa de vídeo a cada N posts enviados
   DESCONTO_MINIMO: 10,       // % mínimo para contar como promoção
   LIMITE_POSTS: 2,           // posts por execução
   DIAS_SEM_REPETIR: 7,       // não repete o mesmo produto por X dias...
@@ -313,23 +313,20 @@ function selecionar(produtos, estado) {
   }
   promocoes.sort((a, b) => b.desconto - a.desconto);
   reservas.sort((a, b) => b.desconto - a.desconto);
+  // Filas: promoções primeiro (maior desconto), depois "preço ótimo"
+  const gpus = [...promocoes.filter(p => p.gpu).map(p => ({ ...p, tipo: 'promocao' })),
+                ...reservas.filter(p => p.gpu).map(p => ({ ...p, tipo: 'preco_otimo' }))];
+  const outros = [...promocoes.filter(p => !p.gpu).map(p => ({ ...p, tipo: 'promocao' })),
+                  ...reservas.filter(p => !p.gpu).map(p => ({ ...p, tipo: 'preco_otimo' }))];
+
+  // A cada PLACA_A_CADA posts enviados, 1 é placa de vídeo (se houver uma nova)
+  let desdeGpu = Number(estado.posts_desde_placa) || 0;
   const escolhidos = [];
-  const usados = new Set();
-  const pegar = (p, tipo) => { escolhidos.push({ ...p, tipo }); usados.add(p.id); };
-
-  // 1. Vaga garantida para placa de vídeo (promoção primeiro, senão preço ótimo)
-  const gpus = [...promocoes.filter(p => p.gpu).map(p => [p, 'promocao']),
-                ...reservas.filter(p => p.gpu).map(p => [p, 'preco_otimo'])];
-  for (const [p, tipo] of gpus.slice(0, CONFIG.VAGAS_PLACA_DE_VIDEO)) pegar(p, tipo);
-
-  // 2. Resto: maiores descontos, depois preço ótimo
-  for (const p of promocoes) {
-    if (escolhidos.length >= CONFIG.LIMITE_POSTS) break;
-    if (!usados.has(p.id)) pegar(p, 'promocao');
-  }
-  for (const p of reservas) {
-    if (escolhidos.length >= CONFIG.LIMITE_POSTS) break;
-    if (!usados.has(p.id)) pegar(p, 'preco_otimo');
+  while (escolhidos.length < CONFIG.LIMITE_POSTS && (gpus.length || outros.length)) {
+    const vezDaPlaca = desdeGpu >= CONFIG.PLACA_A_CADA - 1;
+    const p = (vezDaPlaca && gpus.length) || !outros.length ? gpus.shift() : outros.shift();
+    escolhidos.push(p);
+    desdeGpu = p.gpu ? 0 : desdeGpu + 1;
   }
   return escolhidos;
 }
@@ -425,6 +422,7 @@ async function postar(p) {
     try {
       await postar(p);
       estado.postados[p.id] = { data: agora, preco: p.preco, nome: nomeCurto(p.nome).toLowerCase() };
+      estado.posts_desde_placa = p.gpu ? 0 : (Number(estado.posts_desde_placa) || 0) + 1;
       enviados++;
       console.log('Postado: ' + resumo);
     } catch (e) {
