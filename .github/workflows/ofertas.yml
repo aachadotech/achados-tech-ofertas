@@ -1,12 +1,16 @@
 name: Ofertas Mercado Livre
 
+# Cada execução fica ligada ~5h40 postando a cada 10 minutos (alinhado no relógio).
+# A agenda abaixo só serve para "passar o bastão": a cada 3 h o GitHub enfileira
+# uma nova execução, que começa assim que a atual termina. Assim os atrasos da
+# agenda do GitHub não deixam o canal parado.
 on:
   schedule:
-    - cron: '*/10 * * * *'   # a cada 10 minutos (horário UTC; o GitHub pode atrasar alguns minutos)
+    - cron: '17 */3 * * *'
   workflow_dispatch:
     inputs:
       teste:
-        description: 'Só testar (mostra as ofertas no log, NÃO posta no Telegram)'
+        description: 'Só testar (1 rodada, mostra as ofertas no log, NÃO posta no Telegram)'
         type: boolean
         default: true
 
@@ -21,7 +25,7 @@ concurrency:
 jobs:
   postar:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -46,7 +50,7 @@ jobs:
             exit 1
           fi
 
-      - name: Buscar e postar ofertas
+      - name: Postar ofertas a cada 10 minutos
         env:
           ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
           ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
@@ -55,26 +59,39 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ESTADO_SENHA: ${{ secrets.ESTADO_SENHA }}
           MODO_TESTE: ${{ github.event_name == 'workflow_dispatch' && inputs.teste || 'false' }}
-        run: node ofertas.js
-
-      - name: Salvar estado
-        if: always()
-        env:
           GH_TOKEN: ${{ github.token }}
+          INTERVALO_MIN: 10
+          DURACAO_MIN: 340
         run: |
-          [ -f estado.enc ] || { echo "Nada para salvar."; exit 0; }
-          mkdir -p /tmp/estado && cp estado.enc /tmp/estado/ && cd /tmp/estado
-          git init -q -b estado
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add estado.enc
-          git commit -q -m "estado"
-          for i in 1 2 3; do
-            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" estado && exit 0
-            sleep 5
+          salvar_estado() {
+            [ -f estado.enc ] || return 0
+            rm -rf /tmp/estado && mkdir -p /tmp/estado && cp estado.enc /tmp/estado/
+            (
+              cd /tmp/estado
+              git init -q -b estado
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add estado.enc
+              git commit -q -m "estado"
+              for i in 1 2 3; do
+                git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" estado && exit 0
+                sleep 5
+              done
+              echo "::warning::Não consegui salvar o estado nesta rodada."
+            )
+          }
+
+          INICIO=$(date +%s)
+          while :; do
+            echo "=== Rodada $(TZ=America/Sao_Paulo date '+%d/%m %H:%M') ==="
+            node ofertas.js || echo "::warning::A rodada falhou; tento de novo na próxima."
+            salvar_estado
+            [ "$MODO_TESTE" = "true" ] && break
+            AGORA=$(date +%s)
+            [ $((AGORA - INICIO)) -ge $((DURACAO_MIN * 60)) ] && break
+            PASSO=$((INTERVALO_MIN * 60))
+            sleep $((PASSO - AGORA % PASSO + 5))
           done
-          echo "::error::Não consegui salvar o estado."
-          exit 1
 
       - name: Manter a agenda ativa
         if: always()
