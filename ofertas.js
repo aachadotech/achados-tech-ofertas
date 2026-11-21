@@ -50,7 +50,7 @@ const PERIFERICOS = [
   { id: 'MLB99245', nome: 'Monitores' },
   { id: 'MLB418472', nome: 'Teclados' },
   { id: 'MLB1714', nome: 'Mouses' },
-  { id: 'MLB1664', nome: 'Headsets' },
+  { id: 'MLB1664', nome: 'Headsets', exigir: /gamer|headset/i },
   { id: 'MLB447782', nome: 'Cadeiras gamer' },
   { id: 'MLB1716', nome: 'Mousepads' },
   { id: 'MLB439418', nome: 'Mesas para PC' },
@@ -273,6 +273,7 @@ async function buscar(token, estado) {
     for (const p of detalhes) {
       if (!p || !p.nome || !p.imagem) continue;
       if (vistos.has(p.id) || bloqueado(p.nome)) continue;
+      if (cat.exigir && !cat.exigir.test(p.nome)) continue;
       vistos.add(p.id);
       const atual = Number(p.preco);
       let anterior = Number(p.preco_anterior);
