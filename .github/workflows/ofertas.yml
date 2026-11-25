@@ -56,6 +56,7 @@ jobs:
           ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
           ML_REFRESH_TOKEN: ${{ secrets.ML_REFRESH_TOKEN }}
           ML_AUTH_CODE: ${{ secrets.ML_AUTH_CODE }}
+          SONDAR: '1'
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           ESTADO_SENHA: ${{ secrets.ESTADO_SENHA }}
