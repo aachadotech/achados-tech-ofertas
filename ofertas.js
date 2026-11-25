@@ -245,6 +245,13 @@ async function detalhar(c, token) {
       getJson(`${ENV.API}/products/${c.id}/items?limit=20`, token)
     ]);
     if (!p) return null;
+    if (ENV.TESTE && !DIAG._ficha) {
+      DIAG._ficha = { campos: Object.keys(p), buy_box_winner: p.buy_box_winner || null,
+        preco: p.price ?? null, status: p.status ?? null };
+      for (const extra of [`/products/${c.id}/items?limit=1&status=active`, `/products/${c.id}/price`, `/products/${c.id}/buy_box_winner`]) {
+        await getJson(ENV.API + extra, token);
+      }
+    }
     let novos = (itens?.results || []).filter(x => x.condition === 'new' && Number(x.price) > 0);
     // Plano B: oferta vencedora que vem na própria ficha do produto
     const bb = p.buy_box_winner;
