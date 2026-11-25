@@ -79,6 +79,8 @@ const ENV = {
   CLIENT_ID: process.env.ML_CLIENT_ID || '1477611169283374',
   CLIENT_SECRET: process.env.ML_CLIENT_SECRET,
   REFRESH_TOKEN_INICIAL: (process.env.ML_REFRESH_TOKEN || '').trim(),
+  CODIGO_AUTORIZACAO: (process.env.ML_AUTH_CODE || '').trim(),
+  REDIRECT_URI: process.env.ML_REDIRECT_URI || 'https://example.com/callback',
   TG_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
   TG_CHAT: process.env.TELEGRAM_CHAT_ID,
   SENHA: process.env.ESTADO_SENHA,
@@ -190,6 +192,41 @@ async function renovar(refreshToken) {
     throw new Error(`HTTP ${r.status}: ${dados.message || dados.error || 'erro'}`);
   }
   return dados;
+}
+
+// Reautorização: se o secret ML_AUTH_CODE tiver um código novo (TG-...), troca por token
+async function trocarCodigo(estado) {
+  const codigo = ENV.CODIGO_AUTORIZACAO;
+  if (!codigo) return;
+  const marca = crypto.createHash('sha256').update(codigo).digest('hex').slice(0, 16);
+  if (estado.codigo_usado === marca) return;
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: ENV.CLIENT_ID,
+    client_secret: ENV.CLIENT_SECRET,
+    code: codigo,
+    redirect_uri: ENV.REDIRECT_URI
+  });
+  const r = await fetch(ENV.API + '/oauth/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body,
+    signal: AbortSignal.timeout(20000)
+  });
+  const d = await r.json().catch(() => ({}));
+  estado.codigo_usado = marca;
+  if (!r.ok || !d.access_token) {
+    console.log(`::warning::O código de autorização (ML_AUTH_CODE) não funcionou: HTTP ${r.status} ${d.message || d.error || ''}. ` +
+      'Ele vale só 10 minutos e só pode ser usado 1 vez: gere outro.');
+    return;
+  }
+  mascarar(d.access_token);
+  mascarar(d.refresh_token);
+  estado.access_token = d.access_token;
+  estado.refresh_token = d.refresh_token;
+  estado.expira_em = agora + (Number(d.expires_in) || 21600) * 1000;
+  salvarEstado(estado);
+  console.log('Acesso ao Mercado Livre reautorizado com o código novo.');
 }
 
 async function obterToken(estado) {
@@ -430,6 +467,7 @@ async function postar(p) {
     if (agora - (estado.postados[id].data || 0) > CONFIG.DIAS_DE_HISTORICO * DIA) delete estado.postados[id];
   }
 
+  await trocarCodigo(estado);
   const token = await obterToken(estado);
   const produtos = await buscar(token, estado);
   const escolhidos = selecionar(produtos, estado);
