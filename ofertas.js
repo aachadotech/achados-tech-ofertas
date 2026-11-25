@@ -128,6 +128,15 @@ function salvarEstado(estado) {
 }
 
 // ---------------- HTTP ----------------
+// Diagnóstico: conta os status HTTP por tipo de endpoint (aparece no log)
+const DIAG = {};
+function anotar(url, status, corpo) {
+  const tipo = url.replace(ENV.API, '').replace(/MLB\w+/g, '{id}').split('?')[0];
+  DIAG[tipo] = DIAG[tipo] || { contagem: {}, exemplo: null };
+  DIAG[tipo].contagem[status] = (DIAG[tipo].contagem[status] || 0) + 1;
+  if (status !== 200 && !DIAG[tipo].exemplo && corpo) DIAG[tipo].exemplo = String(corpo).slice(0, 160);
+}
+
 async function getJson(url, token) {
   for (let tentativa = 1; tentativa <= 2; tentativa++) {
     try {
@@ -136,10 +145,14 @@ async function getJson(url, token) {
         signal: AbortSignal.timeout(15000)
       });
       if (r.status === 429 || r.status >= 500) throw new Error('HTTP ' + r.status);
-      if (!r.ok) return null;
+      if (!r.ok) {
+        anotar(url, r.status, await r.text().catch(() => ''));
+        return null;
+      }
+      anotar(url, 200);
       return await r.json();
     } catch (e) {
-      if (tentativa === 2) return null;
+      if (tentativa === 2) { anotar(url, String(e.message || 'erro')); return null; }
       await new Promise(res => setTimeout(res, 800));
     }
   }
@@ -231,8 +244,11 @@ async function detalhar(c, token) {
       getJson(`${ENV.API}/products/${c.id}`, token),
       getJson(`${ENV.API}/products/${c.id}/items?limit=20`, token)
     ]);
-    if (!p || !itens?.results?.length) return null;
-    const novos = itens.results.filter(x => x.condition === 'new' && Number(x.price) > 0);
+    if (!p) return null;
+    let novos = (itens?.results || []).filter(x => x.condition === 'new' && Number(x.price) > 0);
+    // Plano B: oferta vencedora que vem na própria ficha do produto
+    const bb = p.buy_box_winner;
+    if (!novos.length && bb && Number(bb.price) > 0 && (!bb.condition || bb.condition === 'new')) novos = [bb];
     if (!novos.length) return null;
     novos.sort((a, b) => a.price - b.price);
     const of = novos[0];
@@ -411,6 +427,7 @@ async function postar(p) {
   const produtos = await buscar(token, estado);
   const escolhidos = selecionar(produtos, estado);
   console.log(`${produtos.length} produtos válidos, ${escolhidos.length} escolhidos.`);
+  if (!produtos.length || ENV.TESTE) console.log('Diagnóstico da API: ' + JSON.stringify(DIAG));
 
   let enviados = 0;
   for (const p of escolhidos) {
