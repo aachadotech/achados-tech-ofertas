@@ -486,6 +486,12 @@ async function postar(p) {
         const r = await fetch(u, { headers: u.startsWith(ENV.API) ? { Authorization: 'Bearer ' + token } :
           { 'accept-language': 'pt-BR' }, redirect: 'manual', signal: AbortSignal.timeout(20000) });
         const t = await r.text();
+        if (u.includes('/products/search')) {
+          try {
+            const j = JSON.parse(t); const r0 = (j.results || [])[0] || {};
+            console.log('SONDA campos_busca=' + JSON.stringify(Object.keys(r0)) + ' bbw=' + JSON.stringify(r0.buy_box_winner || null).slice(0, 300));
+          } catch (e) {}
+        }
         console.log(`SONDA ${r.status} ${u.replace(ENV.API, '')} tam=${t.length} loc=${r.headers.get('location') || ''} ` +
           `precos=${(t.match(/andes-money-amount__fraction/g) || []).length} cards=${(t.match(/poly-card/g) || []).length} ` +
           `inicio=${t.slice(0, 120).replace(/\s+/g, ' ')}`);
