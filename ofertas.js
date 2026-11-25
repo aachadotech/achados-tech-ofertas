@@ -473,6 +473,25 @@ async function postar(p) {
   const escolhidos = selecionar(produtos, estado);
   console.log(`${produtos.length} produtos válidos, ${escolhidos.length} escolhidos.`);
   if (!produtos.length || ENV.TESTE) console.log('Diagnóstico da API: ' + JSON.stringify(DIAG));
+  if (ENV.TESTE && process.env.SONDAR === '1') {
+    const sondas = [
+      ENV.API + '/sites/MLB/search?q=placa%20de%20video&limit=2',
+      ENV.API + '/sites/MLB/search?category=MLB1658&limit=2',
+      ENV.API + '/products/search?status=active&site_id=MLB&q=rtx%205060',
+      'https://www.mercadolivre.com.br/ofertas',
+      'https://lista.mercadolivre.com.br/placa-de-video'
+    ];
+    for (const u of sondas) {
+      try {
+        const r = await fetch(u, { headers: u.startsWith(ENV.API) ? { Authorization: 'Bearer ' + token } :
+          { 'accept-language': 'pt-BR' }, redirect: 'manual', signal: AbortSignal.timeout(20000) });
+        const t = await r.text();
+        console.log(`SONDA ${r.status} ${u.replace(ENV.API, '')} tam=${t.length} loc=${r.headers.get('location') || ''} ` +
+          `precos=${(t.match(/andes-money-amount__fraction/g) || []).length} cards=${(t.match(/poly-card/g) || []).length} ` +
+          `inicio=${t.slice(0, 120).replace(/\s+/g, ' ')}`);
+      } catch (e) { console.log('SONDA erro ' + u + ' ' + e.message); }
+    }
+  }
 
   let enviados = 0;
   for (const p of escolhidos) {
